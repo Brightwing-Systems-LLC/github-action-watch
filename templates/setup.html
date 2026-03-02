@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Setup · Actions Dashboard{% endblock %}
+
+{% block content %}
+<div class="setup-page">
+    <div class="setup-container">
+        <div class="setup-header">
+            <h1>GitHub App Configuration</h1>
+            <p class="setup-subtitle">Connect your own GitHub App to monitor workflow runs across your repositories.</p>
+        </div>
+
+        {% if config %}
+        <!-- Connected state -->
+        <div class="setup-connected">
+            <span class="connected-badge">Connected</span>
+            <span>GitHub App <strong>{{ config.app_id }}</strong> is configured.</span>
+        </div>
+
+        <details class="setup-path">
+            <summary class="setup-path-toggle">Update Configuration</summary>
+            <div class="manual-form-content">
+                <form method="POST" action="/setup" class="setup-form" onsubmit="return validateForm()">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="app_id">App ID</label>
+                            <input type="text" id="app_id" name="app_id"
+                                   value="{{ config.app_id }}"
+                                   placeholder="123456" required>
+                            <span class="form-hint">Found at the top of your GitHub App's General settings page</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="client_id">Client ID</label>
+                            <input type="text" id="client_id" name="client_id"
+                                   value="{{ config.client_id }}"
+                                   placeholder="Iv1.abc123..." required>
+                        </div>
+                        <div class="form-group">
+                            <label for="client_secret">Client Secret</label>
+                            <input type="password" id="client_secret" name="client_secret"
+                                   value="{{ config.client_secret }}"
+                                   placeholder="••••••••••" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="webhook_secret">Webhook Secret <span class="optional">(optional)</span></label>
+                            <input type="text" id="webhook_secret" name="webhook_secret"
+                                   value="{{ config.webhook_secret }}"
+                                   placeholder="optional-webhook-secret">
+                        </div>
+                        <div class="form-group full-width">
+                            <label for="pem_file">Private Key (.pem file)</label>
+                            <input type="file" id="pem_file" accept=".pem" onchange="readPemFile(this)"
+                                   class="file-input">
+                            <input type="hidden" id="private_key" name="private_key"
+                                   value="{{ config.private_key }}">
+                            <div id="pem-status" class="form-hint">
+                                Private key loaded. Upload a new .pem to replace it.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Update Configuration</button>
+                        <button type="button" class="btn btn-danger" onclick="confirmReset()">Reset Everything</button>
+                    </div>
+                </form>
+            </div>
+        </details>
+
+        {% else %}
+        <!-- Unconfigured: two-path UI -->
+        <div class="setup-paths">
+            <!-- Primary: Manifest flow -->
+            <div class="setup-path setup-path-primary">
+                <span class="setup-path-badge">Recommended</span>
+                <h2>Create a New GitHub App</h2>
+                <p class="setup-path-desc">We'll create a GitHub App with the right permissions automatically. One click.</p>
+                <form method="POST" action="/setup/manifest/create" class="manifest-form">
+                    <div class="manifest-org-row">
+                        <input type="text" name="app_name" placeholder="App name (optional)" class="manifest-org-input">
+                        <span class="form-hint">Must be globally unique on GitHub. Leave blank for an auto-generated name.</span>
+                    </div>
+                    <div class="manifest-org-row">
+                        <input type="text" name="org" placeholder="Organization (optional)" class="manifest-org-input">
+                        <span class="form-hint">Leave blank to create under your personal account.</span>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg">Create GitHub App</button>
+                </form>
+            </div>
+
+            <!-- Secondary: Manual form (collapsed) -->
+            <details class="setup-path">
+                <summary class="setup-path-toggle">Use an Existing App</summary>
+                <div class="manual-form-content">
+                    <form method="POST" action="/setup" class="setup-form" onsubmit="return validateForm()">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="app_id">App ID</label>
+                                <input type="text" id="app_id" name="app_id"
+                                       placeholder="123456" required>
+                                <span class="form-hint">Found at the top of your GitHub App's General settings page</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="client_id">Client ID</label>
+                                <input type="text" id="client_id" name="client_id"
+                                       placeholder="Iv1.abc123..." required>
+                            </div>
+                            <div class="form-group">
+                                <label for="client_secret">Client Secret</label>
+                                <input type="password" id="client_secret" name="client_secret"
+                                       placeholder="••••••••••" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="webhook_secret">Webhook Secret <span class="optional">(optional)</span></label>
+                                <input type="text" id="webhook_secret" name="webhook_secret"
+                                       placeholder="optional-webhook-secret">
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="pem_file">Private Key (.pem file)</label>
+                                <input type="file" id="pem_file" accept=".pem" onchange="readPemFile(this)"
+                                       class="file-input">
+                                <input type="hidden" id="private_key" name="private_key">
+                                <div id="pem-status" class="form-hint">
+                                    Upload the .pem file you downloaded from GitHub.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Save & Continue</button>
+                        </div>
+                    </form>
+                </div>
+            </details>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if config %}
+    <div class="installations-section">
+        <div class="installations-section-header">
+            <h2>Installations</h2>
+            <form method="POST" action="/installations/sync-all" style="display:inline;">
+                <button type="submit" class="btn btn-ghost">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                    </svg>
+                    Sync from GitHub
+                </button>
+            </form>
+        </div>
+
+        <div class="add-account-bar">
+            <form action="/install" method="GET" target="_blank" rel="noopener" class="add-account-form">
+                <input type="text" name="target" placeholder="Org or username (e.g. my-company)" class="add-account-input">
+                <button type="submit" class="btn btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Install on Account
+                </button>
+            </form>
+            <span class="add-account-hint">Opens GitHub to install the app. Come back and hit Sync.</span>
+        </div>
+
+        {% if installs %}
+        <div class="install-list">
+            {% for inst in installs %}
+            <div class="install-row">
+                <div class="install-identity">
+                    <img src="{{ inst.account_avatar_url }}" alt="" class="avatar avatar-md">
+                    <div>
+                        <span class="install-login">{{ inst.account_login }}</span>
+                        <span class="badge badge-muted">{{ inst.account_type }}</span>
+                    </div>
+                </div>
+                <form method="POST" action="/installations/remove/{{ inst.installation_id }}" onsubmit="return confirm('Remove {{ inst.account_login }}? This uninstalls the app from that account and deletes all its repos from the dashboard.')">
+                    <button type="submit" class="btn btn-danger">Remove</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="installations-empty">No installations yet. Type an org/username above and install, or click <strong>Sync from GitHub</strong> if you already installed the app.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<form id="reset-form" method="POST" action="/settings/reset" style="display:none;"></form>
+
+<script>
+function validateForm() {
+    if (!document.getElementById('private_key').value.trim()) {
+        document.getElementById('pem-status').textContent = 'Please upload a .pem file.';
+        document.getElementById('pem-status').style.color = '#f85149';
+        return false;
+    }
+    return true;
+}
+
+function readPemFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        document.getElementById('private_key').value = e.target.result;
+        document.getElementById('pem-status').textContent = file.name + ' loaded';
+    };
+    reader.readAsText(file);
+}
+
+function confirmReset() {
+    if (confirm('This will delete ALL configuration, installations, and cached data. Are you sure?')) {
+        document.getElementById('reset-form').submit();
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Redirecting to GitHub…</title>
+    <style>
+        body { display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif; background: #0d1117; color: #8b949e; }
+        p { font-size: 1rem; }
+    </style>
+</head>
+<body>
+    <p>Redirecting to GitHub…</p>
+    <form id="manifest-form" method="POST" action="{{ github_url }}">
+        <input type="hidden" name="manifest" id="manifest-input">
+    </form>
+    <script>
+        document.getElementById('manifest-input').value = JSON.stringify({{ manifest | tojson }});
+        document.getElementById('manifest-form').submit();
+    </script>
+</body>
+</html>

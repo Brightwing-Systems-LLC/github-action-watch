@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Actions Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-page">
+    <div class="dash-header">
+        <div>
+            <h1>Workflow Runs</h1>
+            <p class="page-subtitle" id="last-updated">Loading…</p>
+        </div>
+        <div class="dash-controls">
+            <div class="auto-refresh-indicator" id="refresh-indicator">
+                <span class="pulse-dot"></span>
+                <span>Auto-refresh <span id="countdown">{{ auto_refresh_seconds }}</span>s</span>
+            </div>
+            <button class="btn btn-ghost" onclick="fetchRuns()" id="refresh-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+                Refresh Now
+            </button>
+            <div class="filter-group">
+                <input type="text" id="filter-input" placeholder="Filter by repo, workflow, branch…" class="filter-input">
+            </div>
+        </div>
+    </div>
+
+    <div id="error-bar" class="error-bar" style="display:none;"></div>
+
+    <div id="runs-container" class="runs-container">
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Fetching workflow runs…</p>
+        </div>
+    </div>
+</div>
+
+<script>
+const AUTO_REFRESH = {{ auto_refresh_seconds }};
+let countdown = AUTO_REFRESH;
+let timer = null;
+let allRuns = [];
+
+function startCountdown() {
+    countdown = AUTO_REFRESH;
+    if (timer) clearInterval(timer);
+    timer = setInterval(() => {
+        countdown--;
+        document.getElementById('countdown').textContent = countdown;
+        if (countdown <= 0) {
+            fetchRuns();
+        }
+    }, 1000);
+}
+
+async function fetchRuns() {
+    const btn = document.getElementById('refresh-btn');
+    btn.disabled = true;
+    btn.classList.add('spinning');
+
+    try {
+        const resp = await fetch('/api/runs');
+        const data = await resp.json();
+        allRuns = data.runs || [];
+        renderRuns(allRuns);
+
+        const ts = new Date(data.updated_at);
+        document.getElementById('last-updated').textContent =
+            `Last updated: ${ts.toLocaleTimeString()} · ${allRuns.length} runs`;
+
+        if (data.errors && data.errors.length > 0) {
+            const bar = document.getElementById('error-bar');
+            bar.innerHTML = data.errors.map(e => `<span>${e}</span>`).join('');
+            bar.style.display = 'block';
+        } else {
+            document.getElementById('error-bar').style.display = 'none';
+        }
+    } catch (e) {
+        console.error('Fetch failed:', e);
+        document.getElementById('error-bar').textContent = 'Failed to fetch runs. Check your configuration.';
+        document.getElementById('error-bar').style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('spinning');
+        startCountdown();
+    }
+}
+
+function renderRuns(runs) {
+    const filter = document.getElementById('filter-input').value.toLowerCase();
+    const filtered = filter
+        ? runs.filter(r =>
+            r.repo_full_name.toLowerCase().includes(filter) ||
+            r.workflow_name.toLowerCase().includes(filter) ||
+            r.head_branch.toLowerCase().includes(filter) ||
+            r.actor_login.toLowerCase().includes(filter) ||
+            (r.display_title || '').toLowerCase().includes(filter)
+        )
+        : runs;
+
+    const container = document.getElementById('runs-container');
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h2>${filter ? 'No matching runs' : 'No workflow runs found'}</h2>
+                <p>${filter ? 'Try a different filter.' : 'Runs will appear here once your workflows execute.'}</p>
+            </div>`;
+        return;
+    }
+
+    // Group by date
+    const groups = {};
+    filtered.forEach(run => {
+        const date = new Date(run.created_at).toLocaleDateString('en-US', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        });
+        if (!groups[date]) groups[date] = [];
+        groups[date].push(run);
+    });
+
+    let html = '';
+    for (const [date, dateRuns] of Object.entries(groups)) {
+        html += `<div class="date-group">
+            <div class="date-label">${date}</div>
+            <div class="runs-list">`;
+
+        for (const run of dateRuns) {
+            const statusClass = getStatusClass(run);
+            const statusIcon = getStatusIcon(run);
+            const timeStr = new Date(run.created_at).toLocaleTimeString('en-US', {
+                hour: '2-digit', minute: '2-digit'
+            });
+            const durationStr = getDuration(run.created_at, run.updated_at);
+            const commitMsg = (run.display_title || run.head_commit_message || '').substring(0, 80);
+            const repoUrl = 'https://github.com/' + run.repo_full_name;
+
+            html += `
+            <div class="run-row ${statusClass}" onclick="window.open('${run.html_url}', '_blank')" style="cursor:pointer;">
+                <div class="run-status">
+                    ${statusIcon}
+                </div>
+                <img src="${run.owner_avatar_url}" alt="" class="avatar avatar-sm repo-avatar" onerror="this.style.display='none'">
+                <div class="run-main">
+                    <div class="run-title-row">
+                        <a href="${repoUrl}/actions" target="_blank" rel="noopener" class="run-repo" onclick="event.stopPropagation();">${run.repo_name}</a>
+                        <span class="run-workflow">${run.workflow_name}</span>
+                        <span class="run-number">#${run.run_number}</span>
+                    </div>
+                    <div class="run-detail-row">
+                        <span class="run-commit" title="${run.display_title || run.head_commit_message || ''}">${commitMsg}</span>
+                    </div>
+                </div>
+                <div class="run-meta">
+                    <div class="run-branch" title="${run.head_branch}">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                        ${run.head_branch}
+                    </div>
+                    <div class="run-time">
+                        <span class="run-timestamp">${timeStr}</span>
+                        ${durationStr ? `<span class="run-duration">${durationStr}</span>` : ''}
+                    </div>
+                </div>
+                <div class="run-actor">
+                    ${run.actor_avatar_url ? `<img src="${run.actor_avatar_url}" alt="${run.actor_login}" class="avatar avatar-xs" title="${run.actor_login}">` : ''}
+                </div>
+            </div>`;
+        }
+        html += `</div></div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+function getStatusClass(run) {
+    if (run.status === 'in_progress') return 'status-running';
+    if (run.status === 'queued' || run.status === 'waiting' || run.status === 'pending') return 'status-queued';
+    if (run.conclusion === 'success') return 'status-success';
+    if (run.conclusion === 'failure') return 'status-failure';
+    if (run.conclusion === 'cancelled') return 'status-cancelled';
+    if (run.conclusion === 'skipped') return 'status-skipped';
+    return 'status-neutral';
+}
+
+function getStatusIcon(run) {
+    if (run.status === 'in_progress') return `<span class="status-icon running-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>`;
+    if (run.status === 'queued' || run.status === 'waiting' || run.status === 'pending') return `<span class="status-icon queued-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>`;
+    if (run.conclusion === 'success') return `<span class="status-icon success-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>`;
+    if (run.conclusion === 'failure') return `<span class="status-icon failure-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></span>`;
+    if (run.conclusion === 'cancelled') return `<span class="status-icon cancelled-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span>`;
+    return `<span class="status-icon neutral-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/></svg></span>`;
+}
+
+function getDuration(start, end) {
+    if (!start || !end) return '';
+    const ms = new Date(end) - new Date(start);
+    if (ms < 0) return '';
+    const secs = Math.floor(ms / 1000);
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    const remSecs = secs % 60;
+    if (mins < 60) return `${mins}m ${remSecs}s`;
+    const hrs = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return `${hrs}h ${remMins}m`;
+}
+
+// Filter handler
+document.getElementById('filter-input').addEventListener('input', () => {
+    renderRuns(allRuns);
+});
+
+// Initial load
+fetchRuns();
+</script>
+{% endblock %}
