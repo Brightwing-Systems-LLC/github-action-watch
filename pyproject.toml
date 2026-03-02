@@ -1,0 +1,14 @@
+[project]
+name = "github-action-watch"
+version = "0.1.0"
+description = "Real-time GitHub Actions dashboard across all your repos"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0",
+    "requests>=2.31",
+    "pyjwt[crypto]>=2.8",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+github-action-watch = "app:main"
