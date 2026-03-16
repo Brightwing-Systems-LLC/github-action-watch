@@ -639,7 +639,7 @@ def api_runs():
                 data = github_api_get(
                     token,
                     f"{GITHUB_API}/repos/{repo['repo_full_name']}/actions/runs",
-                    params={"per_page": 5},
+                    params={"per_page": 2},
                 )
                 runs = data.get("workflow_runs", [])
 
